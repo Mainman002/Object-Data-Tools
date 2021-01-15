@@ -26,7 +26,8 @@ class OBJECT_OT_Object_Data_Make_Copy(bpy.types.Operator):
         selected_obs = bpy.context.selected_objects
         
         for obj in selected_obs:
-            obj.data = active_ob.data
+            if obj.type == active_ob.type:
+                obj.data = active_ob.data
 
         return {'FINISHED'}
     
@@ -40,7 +41,6 @@ class OBJECT_OT_Object_Data_Make_Unique(bpy.types.Operator):
        
     def execute(self, context):
         
-        active_ob = bpy.context.active_object
         selected_obs = bpy.context.selected_objects
         
         for obj in selected_obs:

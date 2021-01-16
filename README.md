@@ -1,4 +1,4 @@
-# ( Blender 2.8x ) Object-Data-Tools
+# ( Blender 2.8x -> 2.9x ) Object-Data-Tools
 A panel that helps with various object data operations.
 
 ### video showcase

@@ -1,349 +1,202 @@
-import bpy, sys, os
-from bpy_extras.io_utils import ImportHelper
-from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty, FloatProperty
-from bpy.types import Operator
+import bpy
 
 
 bl_info = {
-    "name": "TMG_Export_Tools",
+    "name": "Object_Data_Tools",
     "author": "Johnathan Mueller",
-    "descrtion": "A panel to batch export selected objects to .fbx",
+    "descrtion": "A panel that helps with various object data operations.",
     "blender": (2, 80, 0),
-    "version": (0, 1, 2),
-    "location": "View3D (ObjectMode) > Sidebar > TMG_Export Tab",
+    "version": (0, 1, 1),
+    "location": "View3D (ObjectMode) > Sidebar > Edit Tab",
     "warning": "",
     "category": "Object"
 }
 
 
-class TMG_Export_Properties(bpy.types.PropertyGroup):
+
+class OBJECT_OT_Object_Data_Make_Copy(bpy.types.Operator):
+    bl_idname = 'obj.make_copy'
+    bl_label = 'Copy'
+    bl_description = 'Copies active object data to selected objects'
+    bl_options = {'REGISTER'}
     
-    ## Menu Categories
-    exp_fbx_category : bpy.props.BoolProperty(default=False)
-    exp_object_category : bpy.props.BoolProperty(default=False)
-    exp_uv_category : bpy.props.BoolProperty(default=False)
-    
-    ## Default FBX Export Options
-    exp_directory : bpy.props.StringProperty(name='Directory', description='Sets the folder directory path for the FBX models to export to')
-    exp_use_selection : bpy.props.BoolProperty(default=True, description='If you want to export only selected or everything in your blend file (Might not work correctly)')
-    exp_apply_unit_scale : bpy.props.BoolProperty(default=True, description='Takes into account current Blend Unit scale, else use FBX export scale')
-    exp_use_tspace : bpy.props.BoolProperty(default=False, description='Apply global space transforms to object rotations, else only axis space is written to FBX')
-    exp_embed_textures : bpy.props.BoolProperty(default=False, description='Inclued textures used in the materials')
-    
-    ## Object Transform Options
-    exp_apply_mesh : bpy.props.BoolProperty(default=False, description='Converts object to Mesh applying everything !WARNING! will apply all modifiers')
-    exp_reset_location : bpy.props.BoolProperty(default=True, description='Sets Location values to 0')
-    exp_reset_rotation : bpy.props.BoolProperty(default=False, description='Sets Rotation values to 0')
-    exp_reset_scale : bpy.props.BoolProperty(default=False, description='Sets Scale values to 0')
-    
-    ## UV Layer Options
-    exp_rename_uvs : bpy.props.BoolProperty(default=False, description='Sets UV layer names to UVChannel_1 and UVChannel_2')
-    exp_add_lightmap_uv : bpy.props.BoolProperty(default=False, description='Adds a 2nd UV layer for use as Lightmaps')
-    exp_unwrap_lightmap_uv : bpy.props.BoolProperty(default=False, description='Unwraps UV layer 2 !WARNING! will unwrap the 2nd UV layer')
-
-
-def _mode_switch(_mode):
-    bpy.ops.object.mode_set(mode=_mode)
-    return{"Finished"}
-
-
-def _ob_switch(_ob, _objs, _path):
-    _mode_switch('OBJECT')
-    for _obj in bpy.context.selected_objects:
-        _obj.select_set(state=False)
-    _ob.select_set(state=True)
-    bpy.context.scene.cursor.location = _ob.location
-    bpy.context.view_layer.objects.active = _ob
-    _reset_location(_ob, _path)
-    for _obj in _objs:
-        _obj.select_set(state=True)
-    return{"Finished"}
-
-
-def _reset_location(_ob, _path):
-    scene = bpy.context.scene
-    tmg_exp_vars = scene.tmg_exp_vars
-    
-    if scene.tmg_exp_vars.exp_reset_location:
-        bpy.context.active_object.location = (0, 0, 0)
-    
-    if scene.tmg_exp_vars.exp_reset_rotation:
-        bpy.context.active_object.rotation_euler = (0, 0, 0)
-    
-    if scene.tmg_exp_vars.exp_reset_scale:
-        bpy.context.active_object.scale = (1, 1, 1)
-        
-    _apply_mesh(_ob, _path)
-    return{'FINISHED'}
-
-
-def _apply_mesh(_ob, _path):
-    scene = bpy.context.scene
-    tmg_exp_vars = scene.tmg_exp_vars
-    
-    if tmg_exp_vars.exp_apply_mesh:
-        bpy.ops.object.convert(target='MESH')
-    
-    _unwrap(_ob, _path)
-    return{'FINISHED'}
-
-
-def _unwrap(_ob, _path):
-    scene = bpy.context.scene
-    tmg_exp_vars = scene.tmg_exp_vars
-    
-    for _int in range(0,2):
-        if len(_ob.data.uv_layers)-1 < 1:
-            if tmg_exp_vars.exp_add_lightmap_uv:
-                bpy.ops.mesh.uv_texture_add()
-            
-            if tmg_exp_vars.exp_rename_uvs:
-                _ob.data.uv_layers[0].name = 'UVChannel_1'
-            
-        if len(_ob.data.uv_layers)-1 > 0:
-            if tmg_exp_vars.exp_rename_uvs:
-                _ob.data.uv_layers[0].name = 'UVChannel_1'
-                
-            _ob.data.uv_layers[1].active = True
-            
-            if tmg_exp_vars.exp_rename_uvs:
-                _ob.data.uv_layers[1].name = 'UVChannel_2'
-    
-    if tmg_exp_vars.exp_unwrap_lightmap_uv:
-        _mode_switch('EDIT')
-        bpy.context.scene.tool_settings.use_uv_select_sync = True
-        bpy.ops.mesh.select_all(action='SELECT')
-        bpy.ops.uv.smart_project()
-    _pack(_ob, _path)
-
-    return{'FINISHED'}
-
-
-def _pack(_ob, _path):
-    scene = bpy.context.scene
-    tmg_exp_vars = scene.tmg_exp_vars
-    
-    if tmg_exp_vars.exp_unwrap_lightmap_uv:
-        bpy.ops.uv.pack_islands(margin=0.03)
-        
-    _mode_switch('OBJECT')
-    _export(_ob, _path)
-    return{'FINISHED'}
-
-
-def _export(_ob, _path):
-    scene = bpy.context.scene
-    tmg_exp_vars = scene.tmg_exp_vars
-    _new_path = str(_path + _ob.name + '.fbx')
-    
-    bpy.ops.export_scene.fbx(
-    filepath=_new_path, 
-    filter_glob='*.fbx', 
-    use_selection=scene.tmg_exp_vars.exp_use_selection, 
-    apply_unit_scale=scene.tmg_exp_vars.exp_apply_unit_scale, 
-    apply_scale_options='FBX_SCALE_NONE', 
-    object_types={'ARMATURE', 'EMPTY', 'MESH', 'OTHER'}, 
-    axis_forward='-Z', 
-    axis_up='Y', 
-    mesh_smooth_type='EDGE', 
-    use_tspace=scene.tmg_exp_vars.exp_use_tspace, 
-    embed_textures=scene.tmg_exp_vars.exp_embed_textures,
-    )
-    
-    _ob_location_reset(_ob)
-    return{'FINISHED'}
-
-
-def _ob_location_reset(_ob):
-    bpy.context.active_object.location = bpy.context.scene.cursor.location
-    return{'FINISHED'}
-
-
-def _loop(_objs, _path):
-    for _int in range(0, len(_objs)):
-        _ob_switch(_objs[_int], _objs, _path)
-    return{'FINISHED'}
-
-
-def main(_directory):
-    print('\nSTART EXPORT TO')
-    
-    _check = os.path.exists(_directory)
-    
-    if not _check:
-        os.mkdir(path=_directory)
-    
-    _path = _directory
-    print(str('Directory: ' + _path))
-    
-    for _obj in bpy.context.selected_objects:
-        if _obj.type != 'MESH':
-            _obj.select_set(state=False)
-    
-    _objs = bpy.context.selected_objects
-    
-    _loop(_objs, _path)
-    
-    print("\nFINISHED EXPORT TO")
-    print(str('Directory: ' + _path))
-    return{'FINISHED'}
-
-
-class OBJECT_OT_TMG_Reset_Properties(bpy.types.Operator):
-    bl_idname = 'wm.object_tmg_reset_properties'
-    bl_label = 'Reset Properties'
-    bl_description = 'Resets FBX properties to default values.'
-    bl_options  = {'REGISTER', 'UNDO'}
-        
     def execute(self, context):
-        scene = context.scene
-        tmg_exp_vars = scene.tmg_exp_vars
+    
+        active_ob = bpy.context.active_object
+        selected_obs = bpy.context.selected_objects
         
-        scene.tmg_exp_vars.exp_use_selection = True
-        scene.tmg_exp_vars.exp_apply_unit_scale = True
-        scene.tmg_exp_vars.exp_use_tspace = False
-        scene.tmg_exp_vars.exp_embed_textures = False
-        
-        scene.tmg_exp_vars.exp_apply_mesh = False
-        scene.tmg_exp_vars.exp_reset_location = True
-        scene.tmg_exp_vars.exp_reset_rotation = False
-        scene.tmg_exp_vars.exp_reset_scale = False
-        scene.tmg_exp_vars.exp_rename_uvs = False
-        scene.tmg_exp_vars.exp_add_lightmap_uv = False
-        scene.tmg_exp_vars.exp_unwrap_lightmap_uv = False
-        
+        for obj in selected_obs:
+            if obj.type == active_ob.type:
+                obj.data = active_ob.data
+
         return {'FINISHED'}
     
-
-class OBJECT_PT_TMG_Export(bpy.types.Operator):
-    """Export fbx models to folder directory path."""
-    bl_idname = "object.tmg_export"
-    bl_label = "Export"
-    bl_options  = {'REGISTER', 'UNDO'}
     
+    
+class OBJECT_OT_Object_Data_Make_Unique(bpy.types.Operator):
+    bl_idname = 'obj.make_unique'
+    bl_label = 'Unique'
+    bl_description = 'Duplicates object data of selected objects, then makes them unique'
+    bl_options = {'REGISTER'}
+       
     def execute(self, context):
-        scene = context.scene
-        tmg_exp_vars = scene.tmg_exp_vars
+        selected_obs = bpy.context.selected_objects
         
-        if scene.tmg_exp_vars.exp_directory and bpy.context.selected_objects:
-            return main(scene.tmg_exp_vars.exp_directory)
-        return{'FINISHED'}
+        for obj in selected_obs:
+            new_obj = obj.copy()
+            obj.data = new_obj.data.copy()
+
+        return {'FINISHED'}
 
 
-class OBJECT_PT_TMG_Select_Directory(Operator, ImportHelper):
-    """Select folder directory path for exported fbx models."""
-    bl_idname = "object.tmg_select_directory"
-    bl_label = "Select Directory"
-    bl_options  = {'REGISTER', 'UNDO'}
-    
-    directory : bpy.props.StringProperty(subtype='FILE_PATH', options={'HIDDEN', 'SKIP_SAVE'})
 
-    # ImportHelper mixin class uses this
-    filename_ext = ".fbx"
 
-    filter_glob: StringProperty(
-        default="*.fbx",
-        options={'HIDDEN'},
-        maxlen=255,  # Max internal buffer length, longer would be clamped.
-    )
+def rename_selected(self, context, _name):
+    for ob in bpy.context.selected_objects:
+        if ob.type == "MESH":
+            if ob.name.rsplit('_',1)[-1] == 'low' or ob.name.rsplit('_',1)[-1] == 'high':
+                to_pop = '_' + ob.name.rsplit('_',1)[-1]
+                ob.name = ob.name.strip(to_pop)
+                
+            if ob.data.name.rsplit('_',1)[-1] == 'low' or ob.data.name.rsplit('_',1)[-1] == 'high':
+                to_pop = '_' + ob.data.name.rsplit('_',1)[-1]
+                ob.data.name = ob.data.name.strip(to_pop)
+            
+            ob.name = ob.name + '_' + _name
+            ob.data.name = ob.data.name + '_' + _name
+        
 
+def rename_selected_none(self, context):
+    for ob in bpy.context.selected_objects:
+        if ob.type == "MESH":
+            if ob.name.rsplit('_',1)[-1] == 'low' or ob.name.rsplit('_',1)[-1] == 'high':
+                to_pop = '_' + ob.name.rsplit('_',1)[-1]
+                ob.name = ob.name.strip(to_pop)
+                
+            if ob.data.name.rsplit('_',1)[-1] == 'low' or ob.data.name.rsplit('_',1)[-1] == 'high':
+                to_pop = '_' + ob.data.name.rsplit('_',1)[-1]
+                ob.data.name = ob.data.name.strip(to_pop)
+
+
+
+
+class OBJECT_OT_Name_Active_To_Paintable_None(bpy.types.Operator):
+    bl_idname = 'wm.object_ot_name_active_to_paintable_none'
+    bl_label = 'Remove'
+    bl_description = 'Renames objects to active object without a name extention.'
+    bl_options = {'REGISTER'}
+        
     def execute(self, context):
-        scene = context.scene
-        tmg_exp_vars = scene.tmg_exp_vars
-        scene.tmg_exp_vars.exp_directory = self.directory
-        return{'FINISHED'}
+        rename_selected_none(self, context)
+        return {'FINISHED'}
 
 
-class OBJECT_PT_TMG_Export_Panel(bpy.types.Panel):
-    bl_idname = 'OBJECT_PT_tmg_export_panel'
-    bl_category = 'TMG Export'
-    bl_label = 'FBX Export Tools'
+
+
+class OBJECT_OT_Name_Active_To_Paintable_Low(bpy.types.Operator):
+    bl_idname = 'wm.object_ot_name_active_to_paintable_low'
+    bl_label = '_low'
+    bl_description = 'Renames objects to active object with _low name extentions.'
+    bl_options = {'REGISTER'}
+        
+    def execute(self, context):
+        rename_selected(self, context, 'low')
+        return {'FINISHED'}
+
+
+
+class OBJECT_OT_Name_Active_To_Paintable_High(bpy.types.Operator):
+    bl_idname = 'wm.object_ot_name_active_to_paintable_high'
+    bl_label = '_high'
+    bl_description = 'Renames objects to active object with _high name extentions.'
+    bl_options = {'REGISTER'}
+        
+    def execute(self, context):
+        rename_selected(self, context, 'high')
+        return {'FINISHED'}
+
+
+
+
+class OBJECT_PT_Data_Panel(bpy.types.Panel):
+    bl_idname = 'OBJECT_PT_data_panel'
+    bl_category = 'Object Data'
+    bl_label = 'Mesh Data Tools'
     bl_context = "objectmode"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
 
+
     def draw(self, context):
-        scene = context.scene
-        tmg_exp_vars = scene.tmg_exp_vars
-        _check = os.path.exists(scene.tmg_exp_vars.exp_directory)
-        
+        myscene = context.scene
         layout = self.layout
-        col = layout.column(align=True)
-        row = col.row(align=True)
+
+
+        if bpy.context.selected_objects:
+            row = layout.row(align=True)            
+            row.operator('obj.make_copy', icon='RESTRICT_INSTANCED_OFF')
             
-        row.operator('wm.object_tmg_reset_properties', text='', icon='FILE_REFRESH')
-        row.operator('object.tmg_select_directory', text='', icon='FILE_FOLDER')
-        
-        if _check:
-            row.operator('object.tmg_export', text='', icon='FOLDER_REDIRECT')
-        
-        col = layout.column(align=True)
-        row = col.row(align=True)
-            
-        row.prop(tmg_exp_vars, 'exp_directory', text='')
-            
-        box = col.box()
-        row = box.row(align=True)
-        
-        if scene.tmg_exp_vars.exp_fbx_category:
-            row.prop(tmg_exp_vars, 'exp_fbx_category', text='', icon='DOWNARROW_HLT')
+            row.operator('obj.make_unique', icon='MESH_DATA')
         else:
-            row.prop(tmg_exp_vars, 'exp_fbx_category', text='', icon='RIGHTARROW')
-            
-        row.label(text='FBX Export Settings')
+            row = layout.row(align=True)
+            row.label(text='No objects selected')
         
-        if scene.tmg_exp_vars.exp_fbx_category:
-            box_col = box.column(align=True)
-            
-            box_col.prop(tmg_exp_vars, 'exp_use_selection', text='Use Selection')
-            box_col.prop(tmg_exp_vars, 'exp_apply_unit_scale', text='Apply Unit Scale')
-            box_col.prop(tmg_exp_vars, 'exp_use_tspace', text='Use TSpace')
-            box_col.prop(tmg_exp_vars, 'exp_embed_textures', text='Embed Textures')
-            
-            box_col.prop(tmg_exp_vars, 'exp_reset_location', text='Location to World Origin')
-            box_col.prop(tmg_exp_vars, 'exp_apply_mesh', text='Visual Geometry to Mesh')
+        col = layout.column()
         
-        box = col.box()
-        row = box.row(align=True)
-        
-        if scene.tmg_exp_vars.exp_uv_category:
-            row.prop(tmg_exp_vars, 'exp_uv_category', text='', icon='DOWNARROW_HLT')
-        else:
-            row.prop(tmg_exp_vars, 'exp_uv_category', text='', icon='RIGHTARROW')
-            
-        row.label(text='UV Export Settings')
-        
-        if scene.tmg_exp_vars.exp_uv_category:
-            box_col = box.column(align=True)
-            
-            box_col.prop(tmg_exp_vars, 'exp_rename_uvs', text='Rename UV Layers')
-            box_col.prop(tmg_exp_vars, 'exp_add_lightmap_uv', text='Add Lightmap UV Layer')
-            box_col.prop(tmg_exp_vars, 'exp_unwrap_lightmap_uv', text='Unwrap Lightmap UV Layer')
         
 
+
+
+class OBJECT_PT_Data_Name_Panel(bpy.types.Panel):
+    bl_idname = 'OBJECT_PT_data_name_panel'
+    bl_category = 'Object Data'
+    bl_label = 'Mesh Name Tools'
+    bl_context = "objectmode"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+
+
+    def draw(self, context):
+        myscene = context.scene
+        layout = self.layout
+
+        if bpy.context.selected_objects:
+            row = layout.row(align=True)
+            row.operator('wm.object_ot_name_active_to_paintable_none', icon='OUTLINER_OB_FONT')
+            row = layout.row(align=True)         
+            row.operator('wm.object_ot_name_active_to_paintable_low', icon='OUTLINER_OB_FONT')
+            row.operator('wm.object_ot_name_active_to_paintable_high', icon='OUTLINER_OB_FONT')
+        else:
+            row = layout.row(align=True)
+            row.label(text='No objects selected')
+        
+        col = layout.column()
+
+
+
+
+
 classes = (
-    TMG_Export_Properties,
-    OBJECT_PT_TMG_Export_Panel,
-    OBJECT_PT_TMG_Select_Directory,
-    OBJECT_OT_TMG_Reset_Properties,
-    OBJECT_PT_TMG_Export,
+    OBJECT_PT_Data_Panel,
+    OBJECT_PT_Data_Name_Panel,
+    OBJECT_OT_Object_Data_Make_Copy,
+    OBJECT_OT_Object_Data_Make_Unique,
+    OBJECT_OT_Name_Active_To_Paintable_Low,
+    OBJECT_OT_Name_Active_To_Paintable_High,
+    OBJECT_OT_Name_Active_To_Paintable_None,
 )
+
 
 
 def register():
     for rsclass in classes:
         bpy.utils.register_class(rsclass)
-        bpy.types.Scene.tmg_exp_vars = bpy.props.PointerProperty(type=TMG_Export_Properties)
 
 
 def unregister():
     for rsclass in classes:
         bpy.utils.unregister_class(rsclass)
-#        del bpy.types.Scene.tmg_exp_vars
 
 
 if __name__ == "__main__":
     register()
-
-
-

@@ -5,5 +5,4 @@ A panel that helps with various object data operations.
 * https://youtu.be/KjQtPWgeRJg
 
 ### Preview Image
-![alt text](https://raw.githubusercontent.com/Mainman002/Object-Data-Tools/main/Mesh%20Data%20Preview.png)
-
+![image](https://user-images.githubusercontent.com/11281480/154775763-e2276559-d097-42fd-8f22-efbc8eac4cd8.png)
